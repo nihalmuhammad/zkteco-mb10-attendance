@@ -1,25 +1,27 @@
 @echo off
-:: Set the title of the command window
-title Attendance Sync - Shop A
+:: Move to the directory where this .bat file is stored
+cd /d %~dp0
 
-:: Step 1: Activate the Virtual Environment
-:: Assumes your venv folder is named 'venv' in the same directory
-call venv\Scripts\activate
+title Attendance Sync - %cd%
 
 :loop
-echo [%date% %time%] Starting Attendance Sync for MB10...
+cls
+echo =======================================================
+echo [%date% %time%] Starting Attendance Sync (Polling Mode)
+echo =======================================================
+
+:: Step 1: Activate the Virtual Environment
+call venv\Scripts\activate
 
 :: Step 2: Run the Python Script
-:: Use 'python' or 'python3' depending on your PC's installation
 python daily_live.py
 
-:: If the script reaches here, it means it crashed or was closed
+:: Step 3: Error Handling
 echo.
 echo -------------------------------------------------------
-echo [!] Script stopped or Connection lost at %time%
+echo [!] Connection lost or Script closed at %time%
 echo [!] Restarting in 10 seconds... (Press Ctrl+C to cancel)
 echo -------------------------------------------------------
 timeout /t 10
 
-:: Step 3: Loop back to the start
 goto loop

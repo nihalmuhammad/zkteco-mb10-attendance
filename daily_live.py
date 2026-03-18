@@ -1,89 +1,81 @@
+import json
+import time
+from datetime import datetime, timedelta, timezone
+from zk import ZK
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from zk import ZK
-from datetime import datetime, timedelta, timezone
-import sys
 
-# --- CONFIG ---
-DEVICE_IP = '192.168.8.201' 
-SHEET_NAME = 'Live_Attendance'
-WORKSHEET_NAME = 'newdoor'
 JSON_KEYFILE = 'credentials.json'
-SHOP_START_HOUR = 8 
-
-# Riyadh Timezone (UTC+3)
 RIYADH_TZ = timezone(timedelta(hours=3))
+CHECK_INTERVAL = 10 
 
-def start_live_sync():
+def start_polling_sync():
+    # 1. Load Local Config from JSON
+    try:
+        with open(JSON_KEYFILE, 'r') as f:
+            config = json.load(f)
+        
+        DEVICE_IP = config.get('device_ip')
+        SHEET_NAME = config.get('spreadsheet_name')
+        WORKSHEET_NAME = config.get('worksheet_name', 'Sheet2')
+        START_HOUR = config.get('shop_start_hour', 8)
+        
+        print(f"🚀 Initializing: {DEVICE_IP} -> {SHEET_NAME} ({WORKSHEET_NAME})")
+    except Exception as e:
+        print(f"❌ Error loading {JSON_KEYFILE}: {e}")
+        return
+
+    # 2. Connect to Google Sheets
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEYFILE, scope)
         client = gspread.authorize(creds)
         sheet = client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
-        print(f"✅ Connected to Sheet: {SHEET_NAME} -> {WORKSHEET_NAME}")
     except Exception as e:
-        print(f"❌ Google Sheets Error: {e}")
+        print(f"❌ Google Sheets Connection Failed: {e}")
         return
 
-    zk = ZK(DEVICE_IP, port=4370, timeout=10, force_udp=True)
-    conn = None
+    zk = ZK(DEVICE_IP, port=4370, timeout=15, force_udp=True)
     
-    try:
-        conn = zk.connect()
-        print(f"✅ Live Tracking Active. Tracking IN and OUT.")
+    # Memory for "First Punch of the Day" logic
+    punched_in_today = set() 
+    last_processed_time = datetime.now(RIYADH_TZ) - timedelta(minutes=1)
 
-        for attendance in conn.live_capture():
-            if attendance is not None:
-                # Use Riyadh Time
-                now_riyadh = datetime.now(RIYADH_TZ)
-                
-                if now_riyadh.hour >= SHOP_START_HOUR:
-                    today_str = str(now_riyadh.date())
-                    uid = str(attendance.user_id).strip()
+    while True:
+        try:
+            now = datetime.now(RIYADH_TZ)
+            
+            # Reset daily 'IN' list at Midnight
+            if now.hour == 0 and now.minute == 0:
+                punched_in_today.clear()
+
+            conn = zk.connect()
+            logs = conn.get_attendance()
+            
+            if logs:
+                for log in logs:
+                    log_time = log.timestamp.replace(tzinfo=RIYADH_TZ)
                     
-                    # 1. Fetch current data to COUNT entries for this user today
-                    try:
-                        all_rows = sheet.get_all_values()
-                        # Count how many rows match today's date AND this user's ID
-                        user_punches_today = [row for row in all_rows if row[0] == today_str and str(row[1]).strip() == uid]
-                        punch_count = len(user_punches_today)
-                    except Exception as e:
-                        print(f"Error reading sheet: {e}")
-                        punch_count = 0
-
-                    punch_time_str = now_riyadh.strftime("%I:%M:%S %p")
-
-                    # 2. DECISION LOGIC
-                    if punch_count == 0:
-                        # No record yet? This is the PUNCH-IN
-                        sheet.append_row([today_str, uid, punch_time_str, "PUNCH-IN"])
-                        print(f"🚀 [IN] User {uid} recorded at {punch_time_str}")
-                    
-                    elif punch_count == 1:
-                        # One record exists? This is the PUNCH-OUT
-                        # Ensure at least 2 minutes passed since the IN (prevent double-taps)
-                        last_punch_str = user_punches_today[0][2]
-                        last_time = datetime.strptime(f"{today_str} {last_punch_str}", "%Y-%m-%d %I:%M:%S %p").replace(tzinfo=RIYADH_TZ)
+                    if log_time > last_processed_time:
+                        user_id = str(log.user_id)
                         
-                        if (now_riyadh - last_time).total_seconds() > 120:
-                            sheet.append_row([today_str, uid, punch_time_str, "PUNCH-OUT"])
-                            print(f"🚪 [OUT] User {uid} recorded at {punch_time_str}")
+                        # LOGIC: First punch after Start Hour = IN, others = OUT
+                        if log_time.hour >= START_HOUR and user_id not in punched_in_today:
+                            status = "IN"
+                            punched_in_today.add(user_id)
                         else:
-                            print(f"⚠️  [WAIT] User {uid} scanned too soon after IN. (2-min cooldown)")
-                    
-                    else:
-                        # Already has an IN and an OUT
-                        print(f"ℹ️  [DONE] User {uid} already has IN & OUT for today.")
-                
-                sys.stdout.flush()
+                            status = "OUT"
 
-    except KeyboardInterrupt:
-        print("\nStopping...")
-    except Exception as e:
-        print(f"❌ Error: {e}")
-    finally:
-        if conn:
+                        row = [log_time.strftime('%Y-%m-%d %H:%M:%S'), user_id, status]
+                        sheet.append_row(row)
+                        print(f"✅ {status}: User {user_id} at {log_time.strftime('%H:%M:%S')}")
+                        last_processed_time = log_time
+            
             conn.disconnect()
+        except Exception as e:
+            print(f"⚠️ Connection loop issue: {e}")
+        
+        time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
-    start_live_sync()
+    start_polling_sync()
