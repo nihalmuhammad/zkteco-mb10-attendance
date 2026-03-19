@@ -182,7 +182,7 @@ def start_polling_sync():
 
                     # ── Write to Google Sheet ──
                     date_str = log_time.strftime('%Y-%m-%d')
-                    time_str = log_time.strftime('%H:%M:%S')
+                    time_str = log_time.strftime('%I:%M:%S %p')
                     sheet.append_row([date_str, user_id, time_str, status])
                     print(f"✅ {status}: User {user_id} at {log_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
