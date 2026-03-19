@@ -1,5 +1,16 @@
+# Google Service Account key — contains private credentials, NEVER commit
 credentials.json
+
+# Runtime state — regenerated automatically on each run
+state.json
+
+# Python virtual environment
 venv/
+
+# macOS metadata
+.DS_Store
+
+# Python cache
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo

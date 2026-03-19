@@ -1,0 +1,7 @@
+{
+    "device_ip": "192.168.8.201",
+    "spreadsheet_name": "Live_Attendance",
+    "worksheet_name": "newdoor",
+    "shop_start_hour": 8,
+    "cooldown_minutes": 2
+}

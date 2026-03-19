@@ -1,42 +1,68 @@
-from zk import ZK
-from datetime import datetime
+"""
+test_live.py – Live capture test for ZKTeco MB10.
+
+Reads device IP from config.json (same source as the main script).
+Run this on macOS/Linux to verify the device connection before
+starting the full sync.
+
+Usage:
+    python test_live.py
+"""
+
+import json
 import sys
+from datetime import datetime
+from zk import ZK
 
-# --- CONFIG ---
-DEVICE_IP = '192.168.8.201'  # Change to your MB10's Local IP
-DEVICE_PORT = 4370
+CONFIG_FILE = 'config.json'
 
-def test_mac_live():
-    # force_udp=True often works better on Mac networks
-    zk = ZK(DEVICE_IP, port=DEVICE_PORT, timeout=10, force_udp=True)
-    conn = None
-    
+
+def load_config():
     try:
-        print(f"--- Mac Terminal Test: Connecting to {DEVICE_IP} ---")
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ {CONFIG_FILE} not found. Create it first (see README).")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"❌ {CONFIG_FILE} is invalid JSON: {e}")
+        sys.exit(1)
+
+
+def test_live_capture():
+    config      = load_config()
+    device_ip   = config.get('device_ip', '192.168.8.201')
+    device_port = config.get('device_port', 4370)
+
+    zk   = ZK(device_ip, port=device_port, timeout=10, force_udp=True)
+    conn = None
+
+    try:
+        print(f"--- Live Capture Test: Connecting to {device_ip}:{device_port} ---")
         conn = zk.connect()
-        print("✅ Connected! System is now listening...")
-        print("👉 Please punch your finger on the device now...")
+        print("✅ Connected! Listening for finger punches...")
+        print("👉 Please punch a finger on the device now.")
         print("-" * 50)
 
-        # Start live capture loop
         for attendance in conn.live_capture():
             if attendance is not None:
-                now = datetime.now().strftime("%I:%M:%S %p")
-                print(f"🚀 [LIVE EVENT] Time: {now}")
-                print(f"   User ID: {attendance.user_id}")
-                print(f"   Type: {'Punch-In' if attendance.punch == 0 else 'Punch-Out'}")
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                punch_label = "Punch-IN" if attendance.punch == 0 else "Punch-OUT"
+                print(f"🚀 [LIVE] {now}")
+                print(f"   User ID  : {attendance.user_id}")
+                print(f"   Punch    : {punch_label}")
                 print("-" * 30)
-                # Ensure the terminal prints immediately
-                sys.stdout.flush() 
-                
+                sys.stdout.flush()
+
     except KeyboardInterrupt:
-        print("\nStopping test...")
+        print("\n🛑 Test stopped by user.")
     except Exception as e:
         print(f"❌ Error: {e}")
     finally:
         if conn:
             conn.disconnect()
-            print("Connection closed.")
+            print("🔌 Connection closed.")
+
 
 if __name__ == "__main__":
-    test_mac_live()
+    test_live_capture()
