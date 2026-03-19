@@ -11,8 +11,10 @@ Usage:
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zk import ZK
+
+RIYADH_TZ = timezone(timedelta(hours=3))
 
 CONFIG_FILE = 'config.json'
 
@@ -46,9 +48,11 @@ def test_live_capture():
 
         for attendance in conn.live_capture():
             if attendance is not None:
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # Use the timestamp stored on the device (24-hour, Riyadh TZ)
+                device_time = attendance.timestamp.replace(tzinfo=RIYADH_TZ)
+                time_str    = device_time.strftime("%Y-%m-%d %H:%M:%S")
                 punch_label = "Punch-IN" if attendance.punch == 0 else "Punch-OUT"
-                print(f"🚀 [LIVE] {now}")
+                print(f"🚀 [LIVE] {time_str}")
                 print(f"   User ID  : {attendance.user_id}")
                 print(f"   Punch    : {punch_label}")
                 print("-" * 30)
